@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "yandex-lite-ytmusic-bridge"
+version = "0.1.0"
+description = "Safe text-to-Music Assistant bridge and read-only Quasar research"
+requires-python = ">=3.9"
+dependencies = []
+
+[project.scripts]
+station-music = "station_music.cli:main"
+station-music-watch = "station_music.watch:main"
+
+[tool.setuptools.packages.find]
+include = ["station_music*"]
