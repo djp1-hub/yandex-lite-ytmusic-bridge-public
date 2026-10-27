@@ -10,7 +10,10 @@ set -a
 set +a
 : "${STATION_ADB_SERIAL:?Set STATION_ADB_SERIAL in the bridge config}"
 
-# Start the monitoring script instead of directly starting the bridge
-# The monitoring script will handle ADB reconnection and bridge restart
-exec "$base_dir/scripts/monitor_adb_connection.sh" "$STATION_ADB_SERIAL" "$0"
+# The Python watcher owns the ADB reconnect loop. Keeping one process avoids the
+# monitor/bridge recursion which previously left only the monitor running.
+exec python3 -m station_music.watch \
+    --adb-serial "$STATION_ADB_SERIAL" \
+    --allow-http \
+    --token-file "$token_file"
 

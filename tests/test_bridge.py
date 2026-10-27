@@ -176,6 +176,29 @@ class BridgeTests(unittest.TestCase):
             watch(lines, adapter, cooldown=60)
         self.assertEqual([track.name for track in adapter.played], ['Queen'])
 
+    def test_quasar_watch_discards_pending_phrase_after_disconnect(self):
+        class FakeAdapter:
+            def __init__(self):
+                self.played = []
+
+            def search(self, query):
+                return [Track('ytmusic://track/test', query)]
+
+            def play(self, track):
+                self.played.append(track)
+
+        lines = [
+            "onRequestStateChanged: LISTENING, recognizedPhrase='Включи Queen'\n",
+            None,
+            "onAliceStateChanged: IDLE\n",
+            "onRequestStateChanged: LISTENING, recognizedPhrase='Включи Muse'\n",
+            "onAliceStateChanged: IDLE\n",
+        ]
+        adapter = FakeAdapter()
+        with contextlib.redirect_stdout(io.StringIO()):
+            watch(lines, adapter)
+        self.assertEqual([track.name for track in adapter.played], ['Muse'])
+
     def test_quasar_is_disabled(self):
         with self.assertRaises(BridgeError):
             QuasarSource().read()

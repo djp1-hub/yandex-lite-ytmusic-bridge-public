@@ -13,7 +13,7 @@ Environment=HA_TOKEN_FILE=/etc/yandex-lite-ytmusic-bridge/ha_token
 Environment=HOME=/var/lib/yandex-lite-ytmusic-bridge
 StateDirectory=yandex-lite-ytmusic-bridge
 ExecStart=/opt/yandex-lite-ytmusic-bridge/scripts/run_voice_bridge.sh
-Restart=on-failure
+Restart=always
 RestartSec=10
 NoNewPrivileges=true
 PrivateTmp=true

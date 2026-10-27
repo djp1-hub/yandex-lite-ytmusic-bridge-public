@@ -34,29 +34,69 @@ def _adapter(allow_http: bool, token_file: str = "") -> MusicAssistant:
     return adapter
 
 
-def _lines_from_adb(serial: str):
-    if not serial or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:-_" for ch in serial):
-        raise BridgeError("Invalid ADB serial")
-    # Start at EOF: never replay older voice requests after a restart.
-    process = subprocess.Popen(
-        ["adb", "-s", serial, "shell", "tail", "-n", "0", "-F",
-         "/data/quasar/daemons_logs/maind.log"],
+def _adb_ready(serial: str) -> bool:
+    """Connect to exactly one configured station and verify its transport."""
+    subprocess.run(
+        ["adb", "connect", serial],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+        check=False,
+    )
+    state = subprocess.run(
+        ["adb", "-s", serial, "get-state"],
         stdout=subprocess.PIPE,
         stderr=subprocess.DEVNULL,
         text=True,
-        encoding="utf-8",
-        errors="replace",
-        bufsize=1,
+        timeout=10,
+        check=False,
     )
-    if process.stdout is None:
-        raise BridgeError("ADB log stream unavailable")
-    try:
-        for line in process.stdout:
-            if process.poll() is not None:
-                raise BridgeError("ADB process terminated unexpectedly")
-            yield line
-    finally:
-        process.terminate()
+    return state.returncode == 0 and state.stdout.strip() == "device"
+
+
+def _lines_from_adb(serial: str, retry_delay: float = 5.0):
+    if not serial or any(ch not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.:-_" for ch in serial):
+        raise BridgeError("Invalid ADB serial")
+    while True:
+        process = None
+        try:
+            if not _adb_ready(serial):
+                print("Station ADB unavailable; retrying", file=sys.stderr, flush=True)
+                yield None
+                time.sleep(retry_delay)
+                continue
+
+            print("Station ADB connected; watching Quasar log", file=sys.stderr, flush=True)
+            # Start at EOF: never replay voice requests after a reconnect.
+            process = subprocess.Popen(
+                ["adb", "-s", serial, "shell", "tail", "-n", "0", "-F",
+                 "/data/quasar/daemons_logs/maind.log"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+            if process.stdout is None:
+                raise BridgeError("ADB log stream unavailable")
+            yield from process.stdout
+        except (OSError, subprocess.SubprocessError) as exc:
+            print("ADB stream error: " + str(exc), file=sys.stderr, flush=True)
+        finally:
+            if process is not None and process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+
+        print("Station ADB stream ended; reconnecting", file=sys.stderr, flush=True)
+        # Reset pending speech before the next station session. This prevents a
+        # phrase heard before reboot from being paired with IDLE after reboot.
+        yield None
+        time.sleep(retry_delay)
 
 
 def watch(lines, adapter: MusicAssistant, *, cooldown: float = 5.0):
@@ -64,6 +104,9 @@ def watch(lines, adapter: MusicAssistant, *, cooldown: float = 5.0):
     last_phrase = ""
     last_time = 0.0
     for line in lines:
+        if line is None:
+            events = QuasarLogEvents()
+            continue
         phrase = events.feed(line)
         if phrase is None:
             continue
