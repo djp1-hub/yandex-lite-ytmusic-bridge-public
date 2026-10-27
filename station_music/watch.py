@@ -51,7 +51,10 @@ def _lines_from_adb(serial: str):
     if process.stdout is None:
         raise BridgeError("ADB log stream unavailable")
     try:
-        yield from process.stdout
+        for line in process.stdout:
+            if process.poll() is not None:
+                raise BridgeError("ADB process terminated unexpectedly")
+            yield line
     finally:
         process.terminate()
 
